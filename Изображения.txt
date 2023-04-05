@@ -1,0 +1,265 @@
+Добавить плагин 
+    id 'kotlin-android-extensions'
+Делаем разметку, размещаем кнопки 
+объявляем в классе все эти кнопки 
+  ImageView imageView;
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_main);
+
+
+        imageView = findViewById(R.id.image);
+
+        String url = "https://firebasestorage.googleapis.com/v0/b/retrieve-images-958e5.appspot.com/o/9.PNG?alt=media&token=6bd05383-0070-4c26-99cb-dcb17a23f7eb";
+
+        Glide.with(getApplicationContext()).load(url).into(imageView);
+
+
+    }
+
+
+
+Создать активити с изображением и двумя кнопками 
+посмотреть манифест 
+
+
+<uses-permission android:name="android.permission.INTERNET" />
+
+    <application
+            android:allowBackup="true"
+            android:icon="@mipmap/ic_launcher"
+            android:label="@string/app_name"
+            android:roundIcon="@mipmap/ic_launcher_round"
+            android:supportsRtl="true"
+            android:theme="@style/AppTheme">
+        <activity
+                android:name=".GalleryActivity"
+                android:label="@string/title_activity_gallery"
+                android:theme="@style/AppTheme.NoActionBar">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+    </application>
+
+
+private val PICK_IMAGE_REQUEST = 71
+private var filePath: Uri? = null
+private var firebaseStore: FirebaseStorage? = null
+private var storageReference: StorageReference? = null
+
+
+Это PICK_IMAGE_REQUESTбудет код, используемый при запуске intent, 
+filePathпеременная будет содержать Uri(android.net .Uri) загружаемого изображения и, 
+как следует из названий, firebaseStoreбудет содержать экземпляр FirebaseStorageи storageReferenceбудет 
+содержать ссылку на FirebaseStorageэкземпляр.
+
+Далее, в onCreateметоде, нам нужно назначить экземпляр и ссылку на хранилище firebase. М
+ы также добавили бы прослушиватели кликов к нашим кнопкам в нашем onCreateметоде.
+
+
+
+firebaseStore = FirebaseStorage.getInstance()
+storageReference = FirebaseStorage.getInstance().reference
+
+btn_choose_image.setOnClickListener { launchGallery() }
+btn_upload_image.setOnClickListener { uploadImage() }
+
+
+private fun launchGallery() {
+    val intent = Intent()
+    intent.type = "image/*"
+    intent.action = Intent.ACTION_GET_CONTENT
+    startActivityForResult(Intent.createChooser(intent, "Select Picture"), PICK_IMAGE_REQUEST)
+}
+private fun uploadImage(){
+     if(filePath != null){
+        val ref = storageReference?.child("uploads/" + UUID.randomUUID().toString())
+        val uploadTask = ref?.putFile(filePath!!)
+
+        val urlTask = uploadTask?.continueWithTask(Continuation<UploadTask.TaskSnapshot, Task<Uri>> { task ->
+            if (!task.isSuccessful) {
+                task.exception?.let {
+                    throw it
+                }
+            }
+            return@Continuation ref.downloadUrl
+        })?.addOnCompleteListener { task ->
+            if (task.isSuccessful) {
+                val downloadUri = task.result
+                addUploadRecordToDb(downloadUri.toString())
+            } else {
+                // Handle failures
+            }
+        }?.addOnFailureListener{
+
+        }
+    }else{
+        Toast.makeText(this, "Please Upload an Image", Toast.LENGTH_SHORT).show()
+    }
+}
+
+
+
+В этом фрагменте кода есть так много вещей, на которые нужно обратить внимание.
+
+Мы должны быть уверены, что filePathему уже присвоено значение. (Это происходит вonActivityResult).
+ Если есть значение, процесс загрузки продолжается. Если нет, отображается всплывающее сообщение “Пожалуйста, загрузите изображение”.
+В строках 3 мы создаем ссылку на файл, uploads/{RANDOM_STRING} а в строках 4 мы помещаем значения filePathв ссылку.
+Начиная со строки 6, цель состоит в том, чтобы продолжить выполнение задачи и вернуть URL загруженного изображения, чтобы мы могли загрузить его в firestore
+Запустите приложение, загрузка изображения теперь работает.
+
+
+
+Для получения результата
+
+
+override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+    super.onActivityResult(requestCode, resultCode, data)
+    if (requestCode == PICK_IMAGE_REQUEST && resultCode == Activity.RESULT_OK) {
+        if(data == null || data.data == null){
+            return
+        }
+        
+        filePath = data.data
+        try {
+            val bitmap = MediaStore.Images.Media.getBitmap(contentResolver, filePath)
+            uploadImage.setImageBitmap(bitmap)
+        } catch (e: IOException) {
+            e.printStackTrace()
+        }
+    }
+}
+
+
+
+В этом фрагменте кода есть так много вещей, на которые нужно обратить внимание.
+
+Мы должны переопределитьonActivityResult, потому что именно здесь должно быть действие, которое происходит после того, 
+как кто-то выбирает изображение (предварительный просмотр выбранного изображения).
+Нам нужно проверить, совпадает ли возвращаемый onActivityResultкод запроса с отправленным кодом startActivityForResult
+Мы также должны быть уверены, что операция прошла успешно. Это делается путем проверки resultCode == Activity.RESULT_OK
+Далее, если галерея не вернула никаких данных (изображений), выйдите из метода и ничего не делайте
+Если данные были возвращены, сохраните их в переменной filePath, объявленной в верхней части класса
+Наконец, установите imageview для отображения значения filePath
+
+Весь полный код
+
+
+ private val PICK_IMAGE_REQUEST = 71
+    private var filePath: Uri? = null
+    private var firebaseStore: FirebaseStorage? = null
+    private var storageReference: StorageReference? = null
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_gallery)
+        setSupportActionBar(toolbar)
+        supportActionBar?.setDisplayHomeAsUpEnabled(true)
+
+        firebaseStore = FirebaseStorage.getInstance()
+        storageReference = FirebaseStorage.getInstance().reference
+
+        btn_choose_image.setOnClickListener { launchGallery() }
+        btn_upload_image.setOnClickListener { uploadImage() }
+    }
+
+    private fun launchGallery() {
+        val intent = Intent()
+        intent.type = "image/*"
+        intent.action = Intent.ACTION_GET_CONTENT
+        startActivityForResult(Intent.createChooser(intent, "Select Picture"), PICK_IMAGE_REQUEST)
+    }
+    
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == PICK_IMAGE_REQUEST && resultCode == Activity.RESULT_OK) {
+            if(data == null || data.data == null){
+                return
+            }
+
+            filePath = data.data
+            try {
+                val bitmap = MediaStore.Images.Media.getBitmap(contentResolver, filePath)
+                uploadImage.setImageBitmap(bitmap)
+            } catch (e: IOException) {
+                e.printStackTrace()
+            }
+        }
+    }
+    
+    private fun addUploadRecordToDb(uri: String){
+        val db = FirebaseFirestore.getInstance()
+
+        val data = HashMap<String, Any>()
+        data["imageUrl"] = uri
+
+        db.collection("posts")
+            .add(data)
+            .addOnSuccessListener { documentReference ->
+                Toast.makeText(this, "Saved to DB", Toast.LENGTH_LONG).show()
+            }
+            .addOnFailureListener { e ->
+                Toast.makeText(this, "Error saving to DB", Toast.LENGTH_LONG).show()
+            }
+    }
+    
+    private fun uploadImage(){
+        if(filePath != null){
+            val ref = storageReference?.child("uploads/" + UUID.randomUUID().toString())
+            val uploadTask = ref?.putFile(filePath!!)
+
+            val urlTask = uploadTask?.continueWithTask(Continuation<UploadTask.TaskSnapshot, Task<Uri>> { task ->
+                if (!task.isSuccessful) {
+                    task.exception?.let {
+                        throw it
+                    }
+                }
+                return@Continuation ref.downloadUrl
+            })?.addOnCompleteListener { task ->
+                if (task.isSuccessful) {
+                    val downloadUri = task.result
+                    addUploadRecordToDb(downloadUri.toString())
+                } else {
+                    // Handle failures
+                }
+            }?.addOnFailureListener{
+
+            }
+        }else{
+            Toast.makeText(this, "Please Upload an Image", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+}
+
+Добавление записи в Firestore
+Теперь мы можем загрузить наше изображение в облачное хранилище, нам все равно нужно иметь возможность сохранять ссылку в cloud firestore,
+ чтобы мы могли извлекать записи и отображать изображения позже.
+
+Из предыдущего фрагмента в строке 16 есть методaddUploadRecordToDb(uri: String), который еще не существует.
+ Мы будем создавать этот метод в этом разделе.
+
+private fun addUploadRecordToDb(uri: String){
+    val db = FirebaseFirestore.getInstance()
+
+    val data = HashMap<String, Any>()
+    data["imageUrl"] = uri
+
+    db.collection("posts")
+        .add(data)
+        .addOnSuccessListener { documentReference ->
+            Toast.makeText(this, "Saved to DB", Toast.LENGTH_LONG).show()
+        }
+        .addOnFailureListener { e ->
+            Toast.makeText(this, "Error saving to DB", Toast.LENGTH_LONG).show()
+        }
+}
+
+
+В приведенном выше фрагменте мы создаем экземпляр firestore и добавляем наши данные в нашу коллекцию “posts” (строка 7).
+ Чтобы узнать больше о запросах в firestore, нажмите здесь.
+
